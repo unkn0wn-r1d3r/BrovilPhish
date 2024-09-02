@@ -1,12 +1,13 @@
 import sys
 import yaml
 from urllib.parse import urlparse
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QPushButton, QFileDialog, QMessageBox
+from PySide6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget, 
+                               QLineEdit, QPushButton, QFileDialog, QMessageBox, 
+                               QHBoxLayout, QLabel)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor
-from PySide6.QtGui import QIcon, QPalette, QColor
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 
 # Function to extract subdomain and domain from a URL
 def extract_subdomain_and_domain(url):
@@ -217,27 +218,43 @@ class Browser(QMainWindow):
         # Set the window title
         self.setWindowTitle("Brovilphish")
 
-        self.browser = QWebEngineView()
-        self.page = CustomWebEnginePage(self.browser)
-        self.browser.setPage(self.page)
+        # Initialize layouts
+        main_layout = QVBoxLayout()
+        top_layout = QHBoxLayout()
+
+        # Title bar
+        self.title_bar = QWidget()
+        self.title_bar.setFixedHeight(30)
+        self.title_bar_layout = QHBoxLayout(self.title_bar)
+        self.title_bar_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Theme button
+        self.theme_button = QPushButton("Dark Mode")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.title_bar_layout.addWidget(self.theme_button)
+        self.title_bar_layout.addStretch(1)
+
+        # Other widgets
         self.url_bar = QLineEdit()
         self.search_button = QPushButton("Search")
         self.export_button = QPushButton("Export Phishlet")
 
-        self.theme_button = QPushButton("Toggle Theme")
-        self.theme_button.clicked.connect(self.toggle_theme)
+        # Add title bar to layout
+        top_layout.addWidget(self.title_bar)
+        top_layout.addWidget(self.url_bar)
+        top_layout.addWidget(self.search_button)
 
-        # Initialize layout
-        layout = QVBoxLayout()
-        layout.addWidget(self.url_bar)
-        layout.addWidget(self.search_button)
-        layout.addWidget(self.export_button)
-        layout.addWidget(self.theme_button)
-        layout.addWidget(self.browser)
+        # Add browser and buttons to main layout
+        main_layout.addLayout(top_layout)
+        main_layout.addWidget(self.export_button)
+        self.browser = QWebEngineView()
+        self.page = CustomWebEnginePage(self.browser)
+        self.browser.setPage(self.page)
+        main_layout.addWidget(self.browser)
 
         # Create container widget
         container = QWidget()
-        container.setLayout(layout)
+        container.setLayout(main_layout)
         self.setCentralWidget(container)
 
         # Default theme
@@ -245,8 +262,8 @@ class Browser(QMainWindow):
         self.apply_light_theme()
 
         # Initialize the browser
-        self.browser.setUrl(QUrl(" "))
-        self.url_bar.setText(" ")
+        self.browser.setUrl(QUrl("https://www.example.com"))  # Changed to a default URL
+        self.url_bar.setText("https://www.example.com")  # Changed to a default URL
 
         # Connect buttons
         self.search_button.clicked.connect(self.navigate_to_url)
@@ -254,7 +271,10 @@ class Browser(QMainWindow):
 
     def navigate_to_url(self):
         url = self.url_bar.text()
+        if not url.startswith('http://') and not url.startswith('https://'):
+            url = 'http://' + url
         self.browser.setUrl(QUrl(url))
+        print(f"Navigating to URL: {url}")
 
     def export_phishlet(self):
         # Retrieve the phishlet data
@@ -277,8 +297,10 @@ class Browser(QMainWindow):
         self.dark_theme = not self.dark_theme
         if self.dark_theme:
             self.apply_dark_theme()
+            self.theme_button.setText("Light Mode")
         else:
             self.apply_light_theme()
+            self.theme_button.setText("Dark Mode")
 
     def apply_dark_theme(self):
         self.setStyleSheet("""
