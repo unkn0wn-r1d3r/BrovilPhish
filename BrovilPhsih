@@ -5,6 +5,8 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, Q
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor
+from PySide6.QtGui import QIcon, QPalette, QColor
+from PySide6.QtCore import Qt
 
 # Function to extract subdomain and domain from a URL
 def extract_subdomain_and_domain(url):
@@ -210,6 +212,11 @@ class Browser(QMainWindow):
         super().__init__()
 
         # Create widgets
+        self.setWindowIcon(QIcon("hacker.png"))
+
+        # Set the window title
+        self.setWindowTitle("Brovilphish")
+
         self.browser = QWebEngineView()
         self.page = CustomWebEnginePage(self.browser)
         self.browser.setPage(self.page)
@@ -217,15 +224,15 @@ class Browser(QMainWindow):
         self.search_button = QPushButton("Search")
         self.export_button = QPushButton("Export Phishlet")
 
-        # Connect buttons
-        self.search_button.clicked.connect(self.navigate_to_url)
-        self.export_button.clicked.connect(self.export_phishlet)
+        self.theme_button = QPushButton("Toggle Theme")
+        self.theme_button.clicked.connect(self.toggle_theme)
 
-        # Set up layout
+        # Initialize layout
         layout = QVBoxLayout()
         layout.addWidget(self.url_bar)
         layout.addWidget(self.search_button)
         layout.addWidget(self.export_button)
+        layout.addWidget(self.theme_button)
         layout.addWidget(self.browser)
 
         # Create container widget
@@ -233,9 +240,17 @@ class Browser(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        # Default theme
+        self.dark_theme = False
+        self.apply_light_theme()
+
         # Initialize the browser
         self.browser.setUrl(QUrl(" "))
         self.url_bar.setText(" ")
+
+        # Connect buttons
+        self.search_button.clicked.connect(self.navigate_to_url)
+        self.export_button.clicked.connect(self.export_phishlet)
 
     def navigate_to_url(self):
         url = self.url_bar.text()
@@ -257,6 +272,45 @@ class Browser(QMainWindow):
                 QMessageBox.warning(self, "Export Error", "No phishlet data available to export.")
         else:
             QMessageBox.warning(self, "Export Error", "No phishlet data available to export.")
+
+    def toggle_theme(self):
+        self.dark_theme = not self.dark_theme
+        if self.dark_theme:
+            self.apply_dark_theme()
+        else:
+            self.apply_light_theme()
+
+    def apply_dark_theme(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2E2E2E;
+                color: #FFFFFF;
+            }
+            QPushButton {
+                background-color: #4E4E4E;
+                color: #FFFFFF;
+            }
+            QLineEdit {
+                background-color: #4E4E4E;
+                color: #FFFFFF;
+            }
+        """)
+
+    def apply_light_theme(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #FFFFFF;
+                color: #000000;
+            }
+            QPushButton {
+                background-color: #DDDDDD;
+                color: #000000;
+            }
+            QLineEdit {
+                background-color: #FFFFFF;
+                color: #000000;
+            }
+        """)
 
 # Main application
 if __name__ == "__main__":
